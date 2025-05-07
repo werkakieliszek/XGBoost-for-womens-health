@@ -1,0 +1,7 @@
+{
+  "classifier__xgb__scale_pos_weight": 1,
+  "classifier__xgb__n_estimators": 200,
+  "classifier__xgb__max_depth": 3,
+  "classifier__xgb__learning_rate": 0.1,
+  "classifier__logreg__C": 1
+}

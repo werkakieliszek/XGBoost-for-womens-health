@@ -1,19 +1,21 @@
 import pandas as pd
 from pathlib import Path
-import numpy as np
+from datetime import datetime
 from sklearn.model_selection import train_test_split, StratifiedKFold, RandomizedSearchCV
-from sklearn.feature_selection import RFE
+from sklearn.feature_selection import RFECV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_curve, roc_auc_score, accuracy_score, matthews_corrcoef, f1_score, classification_report, auc
-from sklearn.inspection import permutation_importance
 from sklearn.ensemble import VotingClassifier
 from imblearn.combine import SMOTETomek
 from xgboost import XGBClassifier
-import matplotlib.pyplot as plt
+import joblib
+import json
 
-
+# Versioned output structure
+output_dir = Path(__file__).parent.parent / "model_artifacts"
+run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+run_dir = output_dir / run_id
 
 def load_processed_data():
     """Load the preprocessed data from pickle file."""
@@ -21,81 +23,110 @@ def load_processed_data():
     data_path = project_dir / "data/processed/imputed_data.pkl"
     return pd.read_pickle(data_path)
 
-def prepare_data(df):
-    columns_to_drop_gc = ['trichtreat', 'gctreat', 'bvtreat', 'cttreat', 'bv', 'sy', 'trich', 'gc', 'ct']
-    X_gc = df.drop(columns=columns_to_drop_gc)
-    y_gc = df['gc']
-
-    return X_gc, y_gc
+def prepare_data(df, target):
+    columns_to_drop = ['trichtreat', 'gctreat', 'bvtreat', 'cttreat', 
+                      'bv', 'sy', 'trich', 'gc', 'ct']
+    columns_to_drop = [col for col in columns_to_drop if col != target]
+    date_columns = [col for col in df.columns if 'date' in col]
+    X = df.drop(columns=columns_to_drop + date_columns + [target])
+    y = df[target]
+    return X, y
 
 def train_and_select_features(X, y):
-    # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
-    # Resample
     smotetomek = SMOTETomek(random_state=42)
     X_train_res, y_train_res = smotetomek.fit_resample(X_train, y_train)
-    # Feature selection
+    
     estimator = XGBClassifier(random_state=42, eval_metric='auc')
-    selector = RFE(estimator, n_features_to_select=25, step=1)
+    selector = RFECV(
+        estimator=estimator,
+        step=1,
+        cv=StratifiedKFold(3),
+        scoring='precision',
+        min_features_to_select=7
+    )
     selector.fit(X_train_res, y_train_res)
     X_train_sel = selector.transform(X_train_res)
     X_test_sel = selector.transform(X_test)
-    selected_features = X.columns[selector.support_]
-    return X_train_sel, X_test_sel, y_train_res, y_test, selected_features, selector
+    return X_train_sel, X_test_sel, y_train_res, y_test, X.columns[selector.support_], selector
 
-def build_pipeline(selected_features):
-    xgb = XGBClassifier(random_state=42, eval_metric='auc')
-    logreg = LogisticRegression(class_weight='balanced', solver='liblinear', random_state=42)
-    voting_clf = VotingClassifier(estimators=[('xgb', xgb), ('logreg', logreg)], voting='soft')
-    pipeline = Pipeline([
+def build_pipeline():
+    return Pipeline([
         ('scaler', StandardScaler()),
-        ('classifier', voting_clf)
+        ('classifier', VotingClassifier(
+            estimators=[
+                ('xgb', XGBClassifier(random_state=42)),
+                ('logreg', LogisticRegression(class_weight='balanced', solver='liblinear', random_state=42))
+            ],
+            voting='soft'
+        ))
     ])
-    return pipeline
 
 def get_param_grid():
-    param_grid = {
-        'classifier__xgb__n_estimators': [100, 200, 300, 400, 500, 700],
-        'classifier__xgb__max_depth': [3, 5, 7, 9, 11],
-        'classifier__xgb__learning_rate': [0.01, 0.03, 0.05, 0.1, 0.2],
-        'classifier__xgb__subsample': [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
-        'classifier__xgb__colsample_bytree': [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
-        'classifier__xgb__scale_pos_weight': [1, 5, 10, 15, 20],
-        'classifier__xgb__min_child_weight': [1, 3, 5, 7],
-        'classifier__xgb__gamma': [0, 0.1, 0.2, 0.3, 0.4],
-        'classifier__xgb__reg_alpha': [0, 0.01, 0.1, 1, 10],
-        'classifier__xgb__reg_lambda': [0.1, 1, 10, 20],
-        'classifier__xgb__max_delta_step': [0, 1, 2, 5, 10],
-        'classifier__logreg__C': [0.01, 0.1, 1, 10, 100, 1000],
-        'classifier__logreg__solver': ['liblinear', 'lbfgs', 'sag', 'saga']
+    return {
+        'classifier__xgb__n_estimators': [100, 200, 300],
+        'classifier__xgb__max_depth': [3, 5, 7],
+        'classifier__xgb__learning_rate': [0.01, 0.1],
+        'classifier__xgb__scale_pos_weight': [1, 5, 10],
+        'classifier__logreg__C': [0.1, 1, 10]
     }
-    return param_grid
 
-def model_training(X_train, y_train, pipeline, param_grid):
+def train_model(X_train, y_train):
+    pipeline = build_pipeline()
     random_search = RandomizedSearchCV(
-        estimator=pipeline,
-        param_distributions=param_grid,
-        n_iter=100,
+        pipeline,
+        get_param_grid(),
+        n_iter=15,
         scoring='precision',
-        cv=StratifiedKFold(n_splits=5),
-        random_state=42
+        cv=StratifiedKFold(3),
+        random_state=42,
+        n_jobs=-1
     )
     random_search.fit(X_train, y_train)
     return random_search
 
-def main(df):
-    X_gc, y_gc = prepare_data(df)
-    X_train_gc, X_test_gc, y_train_gc, y_test_gc, selected_features_gc, selector_gc = train_and_select_features(X_gc, y_gc)
-    print("Selected features:", selected_features_gc)
-    pipeline_gc = build_pipeline(selected_features_gc)
-    param_grid_gc = get_param_grid()
-    random_search_gc = model_training(X_train_gc, y_train_gc, pipeline_gc, param_grid_gc)
-    print("Best parameters found: ", random_search_gc.best_params_)
-    print("Best cross-validation precision: ", random_search_gc.best_score_)
-    best_model_gc = random_search_gc.best_estimator_
-    return best_model_gc, X_test_gc, y_test_gc, selected_features_gc
+def save_artifacts(target, model, params, features, score):
+    target_dir = run_dir / target
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save model
+    joblib.dump(model, target_dir / "model.joblib")
+    
+    # Save parameters
+    with open(target_dir / "params.json", 'w') as f:
+        json.dump(params, f, indent=2)
+    
+    # Save features
+    with open(target_dir / "features.json", 'w') as f:
+        json.dump(list(features), f, indent=2)
+    
+    # Save metadata
+    metadata = {
+        "training_date": datetime.now().isoformat(),
+        "target": target,
+        "cv_precision": score,
+        "n_features": len(features),
+        "data_version": "doi:10.7910/DVN/NTN7KY"
+    }
+    with open(target_dir / "metadata.json", 'w') as f:
+        json.dump(metadata, f, indent=2)
 
-# If running as a script:
 if __name__ == "__main__":
     df = load_processed_data()
-    best_model_gc, X_test_gc, y_test_gc, selected_features_gc = main(df)
+    targets = ['trich', 'bv', 'ct', 'gc']
+    
+    for target in targets:
+        print(f"\n{'='*40}\nTraining {target.upper()} model\n{'='*40}")
+        X, y = prepare_data(df, target)
+        X_train, X_test, y_train, y_test, features, selector = train_and_select_features(X, y)
+        random_search = train_model(X_train, y_train)
+        
+        save_artifacts(
+            target=target,
+            model=random_search.best_estimator_,
+            params=random_search.best_params_,
+            features=features,
+            score=random_search.best_score_
+        )
+
+    print(f"\nAll artifacts saved in versioned structure:\n{run_dir}")
