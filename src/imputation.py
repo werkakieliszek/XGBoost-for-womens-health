@@ -27,6 +27,7 @@ def impute_data(df):
     """
     # Basic imputation for binary/count variables
     df['art'] = df['art'].fillna(0)
+    df['hiv_diagnosis'] = df['hiv_diagnosis'].fillna(0)
     
     # Logical imputations based on domain knowledge
     df.loc[(df['gvl'] == 0) & (df['gvlquant'].isna()), 'gvlquant'] = 20

@@ -43,6 +43,8 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     
     # Create time since treatment features
     df = create_time_since_treatment(df)
+
+    df = drop_columns(df)
     
     # Set index
     df.set_index(['fakeid', 'month'], inplace=True)
@@ -146,6 +148,12 @@ def create_time_since_treatment(df: pd.DataFrame) -> pd.DataFrame:
         df = df.groupby('fakeid', as_index=False).apply(lambda x: _calculate_group(x, uti))
     
     return df.reset_index(drop=True)
+
+def drop_columns(df: pd.DataFrame) -> pd.DataFrame:
+    date_columns = [col for col in df.columns if 'date' in col]
+    df = df.drop(columns=date_columns)
+
+    return df
 
 if __name__ == "__main__":
     project_dir = Path(__file__).parent.parent
