@@ -13,10 +13,12 @@ from imblearn.combine import SMOTETomek
 from xgboost import XGBClassifier
 import matplotlib.pyplot as plt
 
+
+
 def load_processed_data():
     """Load the preprocessed data from pickle file."""
     project_dir = Path(__file__).parent.parent
-    data_path = project_dir / "data/processed/processed_data.pkl"
+    data_path = project_dir / "data/processed/imputed_data.pkl"
     return pd.read_pickle(data_path)
 
 def prepare_data(df):
