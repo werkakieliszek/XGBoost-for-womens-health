@@ -9,7 +9,7 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 
 # Set this to your latest run directory
-run_dir = Path("model_artifacts/20250507_230419")  # update as needed
+run_dir = Path("model_artifacts/20250508_000742")  # update as needed
 
 illnesses = ["trich", "bv", "ct", "gc"]
 

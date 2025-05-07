@@ -45,11 +45,70 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     df = create_time_since_treatment(df)
 
     df = drop_columns(df)
+
+    df = create_lagged_variables(df)
     
     # Set index
     df.set_index(['fakeid', 'month'], inplace=True)
     
     return df
+
+def create_lagged_variables(df, exclude_vars=None, treatment_vars=None, clinical_vars=None):
+    """
+    Create lagged versions of variables in the DataFrame, grouped by 'fakeid'.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame with multiindex where one level is 'fakeid'
+    exclude_vars : list, optional
+        List of variables to exclude from lagging
+    treatment_vars : list, optional
+        List of treatment variables to lag
+    clinical_vars : list, optional
+        List of clinical variables to lag
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with additional lagged columns
+    """
+    # Use default lists if not provided
+    if exclude_vars is None:
+        exclude_vars = ['hiv_diagnosis', 'in_the_trial', 'arm', 'since_last_treatment_ct', 
+                         'since_last_treatment_trich', 'since_last_treatment_bv', 
+                         'since_last_treatment_gc', 'previous_trich_count', 
+                         'previous_bv_count', 'previous_gc_count', 'previous_ct_count', 
+                         'previous_uti_count', 'artgroup']
+    
+    if treatment_vars is None:
+        treatment_vars = ['arm', 'art', 'artgroup', 'trichtreat', 'bvtreat', 'cttreat', 
+                          'gctreat', 'in_the_trial', 'since_last_treatment_trich', 
+                          'since_last_treatment_ct', 'since_last_treatment_bv', 
+                          'since_last_treatment_gc']
+    
+    if clinical_vars is None:
+        clinical_vars = ['PID', 'gvl', 'gvlquant', 'pvl', 'pvlquant', 'trich', 'bv', 
+                         'sy', 'ct', 'gc', 'hbg', 'cd4', 'hiv_diagnosis', 
+                         'previous_uti_count', 'previous_ct_count', 'previous_trich_count', 
+                         'previous_gc_count', 'previous_bv_count']
+    
+    # Create a copy of the DataFrame to avoid modifying the original
+    result_df = df.copy()
+    
+    # Create lagged variables
+    for var in treatment_vars + clinical_vars:
+        if var not in exclude_vars and var in df.columns:
+            result_df[f'lagged_{var}'] = result_df.groupby('fakeid', as_index=False)[var].shift(1)
+    
+    # Create list of lagged column names
+    lagged_columns = [f'lagged_{var}' for var in treatment_vars + clinical_vars 
+                     if var not in exclude_vars and var in df.columns]
+    
+    # Fill NA values with 0
+    result_df[lagged_columns] = result_df[lagged_columns].fillna(0)
+    
+    return result_df 
 
 def create_time_based_features(df: pd.DataFrame) -> pd.DataFrame:
     """Create time-based delta features."""
@@ -123,7 +182,6 @@ def create_historical_counts(df: pd.DataFrame) -> pd.DataFrame:
         return group
     
     return df.groupby('fakeid', as_index=False).apply(_count_group).reset_index(drop=True)
-
 
 def create_time_since_treatment(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate days since last treatment for each infection type."""

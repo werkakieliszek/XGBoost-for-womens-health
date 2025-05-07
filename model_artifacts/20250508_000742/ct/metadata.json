@@ -1,0 +1,7 @@
+{
+  "training_date": "2025-05-08T00:09:40.089873",
+  "target": "ct",
+  "cv_precision": 0.9741485794020566,
+  "n_features": 10,
+  "data_version": "doi:10.7910/DVN/NTN7KY"
+}
