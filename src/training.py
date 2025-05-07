@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedKFold, RandomizedSearchCV
 from sklearn.feature_selection import RFE
+from sklearn.feature_selection import RFECV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -31,16 +32,27 @@ def prepare_data(df):
 def train_and_select_features(X, y):
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
+    
     # Resample
     smotetomek = SMOTETomek(random_state=42)
     X_train_res, y_train_res = smotetomek.fit_resample(X_train, y_train)
-    # Feature selection
+    
+    # Feature selection with RFECV
     estimator = XGBClassifier(random_state=42, eval_metric='auc')
-    selector = RFE(estimator, n_features_to_select=25, step=1)
+    selector = RFECV(
+        estimator=estimator,
+        step=1,
+        cv=StratifiedKFold(3),  # Reduced folds for speed
+        scoring='precision',
+        min_features_to_select=5
+    )
     selector.fit(X_train_res, y_train_res)
+    
     X_train_sel = selector.transform(X_train_res)
     X_test_sel = selector.transform(X_test)
     selected_features = X.columns[selector.support_]
+    
+    print(f"Optimal number of features: {selector.n_features_}")
     return X_train_sel, X_test_sel, y_train_res, y_test, selected_features, selector
 
 def build_pipeline(selected_features):
