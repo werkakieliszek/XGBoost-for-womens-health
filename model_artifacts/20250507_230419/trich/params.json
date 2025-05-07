@@ -1,0 +1,15 @@
+{
+  "classifier__xgb__subsample": 0.5,
+  "classifier__xgb__scale_pos_weight": 1,
+  "classifier__xgb__reg_lambda": 1,
+  "classifier__xgb__reg_alpha": 1,
+  "classifier__xgb__n_estimators": 500,
+  "classifier__xgb__min_child_weight": 3,
+  "classifier__xgb__max_depth": 3,
+  "classifier__xgb__max_delta_step": 5,
+  "classifier__xgb__learning_rate": 0.2,
+  "classifier__xgb__gamma": 0.2,
+  "classifier__xgb__colsample_bytree": 0.7,
+  "classifier__logreg__solver": "sag",
+  "classifier__logreg__C": 0.1
+}

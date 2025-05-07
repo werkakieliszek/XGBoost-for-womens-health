@@ -7,7 +7,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import VotingClassifier
-from imblearn.combine import SMOTETomek
+from imblearn.combine import SMOTETomek, SMOTEENN
 from xgboost import XGBClassifier
 import joblib
 import json
@@ -16,6 +16,9 @@ import json
 output_dir = Path(__file__).parent.parent / "model_artifacts"
 run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 run_dir = output_dir / run_id
+
+# Create the parent run directory
+run_dir.mkdir(parents=True, exist_ok=True)
 
 def load_processed_data():
     """Load the preprocessed data from pickle file."""
@@ -33,17 +36,17 @@ def prepare_data(df, target):
     return X, y
 
 def train_and_select_features(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
-    smotetomek = SMOTETomek(random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    smotetomek = SMOTEENN(random_state=42)
     X_train_res, y_train_res = smotetomek.fit_resample(X_train, y_train)
     
     estimator = XGBClassifier(random_state=42, eval_metric='auc')
-    selector = RFECV(
+    selector =  RFECV(
         estimator=estimator,
         step=1,
         cv=StratifiedKFold(3),
         scoring='precision',
-        min_features_to_select=7
+        min_features_to_select=3
     )
     selector.fit(X_train_res, y_train_res)
     X_train_sel = selector.transform(X_train_res)
@@ -64,11 +67,19 @@ def build_pipeline():
 
 def get_param_grid():
     return {
-        'classifier__xgb__n_estimators': [100, 200, 300],
-        'classifier__xgb__max_depth': [3, 5, 7],
-        'classifier__xgb__learning_rate': [0.01, 0.1],
-        'classifier__xgb__scale_pos_weight': [1, 5, 10],
-        'classifier__logreg__C': [0.1, 1, 10]
+        'classifier__xgb__n_estimators': [100, 200, 300, 400, 500, 700],
+        'classifier__xgb__max_depth': [3, 5, 7, 9, 11],
+        'classifier__xgb__learning_rate': [0.01, 0.03, 0.05, 0.1, 0.2],
+        'classifier__xgb__subsample': [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        'classifier__xgb__colsample_bytree': [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        'classifier__xgb__scale_pos_weight': [1, 5, 10, 15, 20],
+        'classifier__xgb__min_child_weight': [1, 3, 5, 7],
+        'classifier__xgb__gamma': [0, 0.1, 0.2, 0.3, 0.4],
+        'classifier__xgb__reg_alpha': [0, 0.01, 0.1, 1, 10],
+        'classifier__xgb__reg_lambda': [0.1, 1, 10, 20],
+        'classifier__xgb__max_delta_step': [0, 1, 2, 5, 10],
+        'classifier__logreg__C': [0.01, 0.1, 1, 10, 100, 1000],
+        'classifier__logreg__solver': ['liblinear', 'lbfgs', 'sag', 'saga']
     }
 
 def train_model(X_train, y_train):
@@ -76,9 +87,9 @@ def train_model(X_train, y_train):
     random_search = RandomizedSearchCV(
         pipeline,
         get_param_grid(),
-        n_iter=15,
+        n_iter=200,
         scoring='precision',
-        cv=StratifiedKFold(3),
+        cv=StratifiedKFold(n_splits=5),
         random_state=42,
         n_jobs=-1
     )
@@ -128,5 +139,12 @@ if __name__ == "__main__":
             features=features,
             score=random_search.best_score_
         )
+
+        target_dir = run_dir / target
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # Save test features and true labels
+        test_df = pd.DataFrame(X_test, columns=features)
+        test_df['true_label'] = y_test.values
+        test_df.to_csv(target_dir / "test_data.csv", index=False)
 
     print(f"\nAll artifacts saved in versioned structure:\n{run_dir}")

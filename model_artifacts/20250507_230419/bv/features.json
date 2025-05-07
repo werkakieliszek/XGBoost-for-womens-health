@@ -1,0 +1,18 @@
+[
+  "arm",
+  "gvl",
+  "pvlquant",
+  "art",
+  "education",
+  "gravid",
+  "sexparts",
+  "sexfreq",
+  "iud_reason_Pain",
+  "hiv_diagnosis",
+  "previous_uti_count",
+  "previous_trich_count",
+  "previous_bv_count",
+  "previous_gc_count",
+  "since_last_treatment_bv",
+  "composite_risk_score"
+]
